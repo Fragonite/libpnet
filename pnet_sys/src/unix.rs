@@ -52,6 +52,7 @@ pub mod public {
     pub const SOL_SOCKET: libc::c_int = libc::SOL_SOCKET;
     pub const SO_RCVTIMEO: libc::c_int = libc::SO_RCVTIMEO;
     pub const SO_SNDTIMEO: libc::c_int = libc::SO_SNDTIMEO;
+    pub const SO_BINDTODEVICE: libc::c_int = libc::SO_BINDTODEVICE;
 
     pub const IPPROTO_IP: libc::c_int = libc::IPPROTO_IP;
     pub const IP_HDRINCL: libc::c_int = libc::IP_HDRINCL;

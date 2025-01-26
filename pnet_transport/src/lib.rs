@@ -145,6 +145,25 @@ pub fn transport_channel(
         return Err(Error::last_os_error());
     }
 
+    // Add SO_BINDTODEVICE option
+    let device_name = CString::new("lan1").expect("CString::new failed");
+    let res = unsafe {
+        pnet_sys::setsockopt(
+            socket,
+            pnet_sys::SOL_SOCKET,
+            pnet_sys::SO_BINDTODEVICE,
+            device_name.as_ptr() as pnet_sys::Buf,
+            device_name.to_bytes_with_nul().len() as pnet_sys::SockLen,
+        )
+    };
+    if res == -1 {
+        let err = Error::last_os_error();
+        unsafe {
+            pnet_sys::close(socket);
+        }
+        return Err(err);
+    }
+
     if matches!(channel_type, Layer3(_) | Layer4(Ipv4(_))) {
         let hincl: libc::c_int = match channel_type {
             Layer4(..) => 0,
