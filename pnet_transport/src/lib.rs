@@ -33,6 +33,7 @@ use pnet_packet::tcp::TcpPacket;
 use pnet_packet::udp::UdpPacket;
 use pnet_packet::Packet;
 
+use std::ffi::CString;
 use std::io;
 use std::io::Error;
 #[cfg(unix)]
