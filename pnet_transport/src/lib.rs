@@ -20,11 +20,13 @@
 #![macro_use]
 
 extern crate libc;
+extern crate pnet_datalink;
 extern crate pnet_packet;
 extern crate pnet_sys;
 
 use self::TransportChannelType::{Layer3, Layer4};
 use self::TransportProtocol::{Ipv4, Ipv6};
+use pnet_datalink::NetworkInterface;
 use pnet_packet::icmp::IcmpPacket;
 use pnet_packet::icmpv6::Icmpv6Packet;
 use pnet_packet::ip::IpNextHeaderProtocol;
@@ -55,7 +57,7 @@ pub enum TransportProtocol {
 
 /// Represents the valid codepoints for the Explicit Network Congestion in the IP header.
 #[repr(u8)]
-#[derive(Clone,Copy,Debug,PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Ecn {
     /// Not-ECT: The packet is not using ECN.
     NotEct = 0x0,
@@ -64,18 +66,18 @@ pub enum Ecn {
     /// ECT(0): The connection supports ECN.
     Ect0 = 0x2,
     /// CN: A host is notifying its peer that congestion has occurred.
-    CE = 0x3
+    CE = 0x3,
 }
 
 impl From<u8> for Ecn {
     fn from(value: u8) -> Ecn {
         let ecn_bits = value & 0x3;
         if ecn_bits == Ecn::Ect0 as u8 {
-            return Ecn::Ect0
+            return Ecn::Ect0;
         } else if ecn_bits == Ecn::Ect1 as u8 {
-            return Ecn::Ect1
+            return Ecn::Ect1;
         } else if ecn_bits == Ecn::CE as u8 {
-            return Ecn::CE
+            return Ecn::CE;
         }
         Ecn::NotEct
     }
@@ -124,6 +126,26 @@ pub fn transport_channel(
     buffer_size: usize,
     channel_type: TransportChannelType,
 ) -> io::Result<(TransportSender, TransportReceiver)> {
+    transport_channel_with_interface(buffer_size, channel_type, None)
+}
+
+/// Create a new `(TransportSender, TransportReceiver)` pair.
+///
+/// This function is similar to `transport_channel`, but allows for specifying the network interface.
+///
+/// This allows for sending and receiving packets at the transport layer. The buffer size should be
+/// large enough to handle the largest packet you wish to receive.
+///
+/// The channel type specifies what layer to send and receive packets at, and the transport
+/// protocol you wish to implement. For example, `Layer4(Ipv4(IpNextHeaderProtocols::Udp))` would
+/// allow sending and receiving UDP packets using IPv4; whereas `Layer3(IpNextHeaderProtocols::Udp)`
+/// would include the IPv4 Header in received values, and require manual construction of an IP
+/// header when sending.
+pub fn transport_channel_with_interface(
+    buffer_size: usize,
+    channel_type: TransportChannelType,
+    interface: Option<&NetworkInterface>,
+) -> io::Result<(TransportSender, TransportReceiver)> {
     // This hack makes sure that winsock is initialised
     let _ = {
         let ip = net::Ipv4Addr::new(255, 255, 255, 255);
@@ -146,23 +168,24 @@ pub fn transport_channel(
         return Err(Error::last_os_error());
     }
 
-    // Add SO_BINDTODEVICE option
-    let device_name = CString::new("lan1").expect("CString::new failed");
-    let res = unsafe {
-        pnet_sys::setsockopt(
-            socket,
-            pnet_sys::SOL_SOCKET,
-            pnet_sys::SO_BINDTODEVICE,
-            device_name.as_ptr() as pnet_sys::Buf,
-            device_name.to_bytes_with_nul().len() as pnet_sys::SockLen,
-        )
-    };
-    if res == -1 {
-        let err = Error::last_os_error();
-        unsafe {
-            pnet_sys::close(socket);
+    if let Some(interface) = interface {
+        let device_name = CString::new(interface.name.clone()).unwrap();
+        let res = unsafe {
+            pnet_sys::setsockopt(
+                socket,
+                pnet_sys::SOL_SOCKET,
+                pnet_sys::SO_BINDTODEVICE,
+                device_name.as_ptr() as pnet_sys::Buf,
+                device_name.to_bytes_with_nul().len() as pnet_sys::SockLen,
+            )
+        };
+        if res == -1 {
+            let err = Error::last_os_error();
+            unsafe {
+                pnet_sys::close(socket);
+            }
+            return Err(err);
         }
-        return Err(err);
     }
 
     if matches!(channel_type, Layer3(_) | Layer4(Ipv4(_))) {
@@ -297,7 +320,12 @@ impl TransportSender {
         self.send(packet, dst)
     }
 
-    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "ios", target_os = "tvos"))]
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos"
+    ))]
     fn send_to_impl<T: Packet>(&mut self, packet: T, dst: IpAddr) -> io::Result<usize> {
         use pnet_packet::ipv4::MutableIpv4Packet;
         use pnet_packet::MutablePacket;
